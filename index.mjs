@@ -127,33 +127,60 @@ export async function AnthropicAuthPlugin({ client }) {
                 });
                 auth.access = json.access_token;
               }
-              // Add oauth-2025-04-20 beta to whatever betas are already present
-              const incomingBeta = init.headers?.["anthropic-beta"] || "";
+              const requestInit = init ?? {};
+
+              const requestHeaders = new Headers();
+              if (input instanceof Request) {
+                input.headers.forEach((value, key) => {
+                  requestHeaders.set(key, value);
+                });
+              }
+              if (requestInit.headers) {
+                if (requestInit.headers instanceof Headers) {
+                  requestInit.headers.forEach((value, key) => {
+                    requestHeaders.set(key, value);
+                  });
+                } else if (Array.isArray(requestInit.headers)) {
+                  for (const [key, value] of requestInit.headers) {
+                    if (typeof value !== "undefined") {
+                      requestHeaders.set(key, String(value));
+                    }
+                  }
+                } else {
+                  for (const [key, value] of Object.entries(requestInit.headers)) {
+                    if (typeof value !== "undefined") {
+                      requestHeaders.set(key, String(value));
+                    }
+                  }
+                }
+              }
+
+              const incomingBeta = requestHeaders.get("anthropic-beta") || "";
               const incomingBetasList = incomingBeta
                 .split(",")
                 .map((b) => b.trim())
                 .filter(Boolean);
 
-              // Add oauth beta and deduplicate
+              const includeClaudeCode = incomingBetasList.includes(
+                "claude-code-20250219",
+              );
+
               const mergedBetas = [
-                ...new Set([
-                  "oauth-2025-04-20",
-                  "claude-code-20250219",
-                  "interleaved-thinking-2025-05-14",
-                  "fine-grained-tool-streaming-2025-05-14",
-                  ...incomingBetasList,
-                ]),
+                "oauth-2025-04-20",
+                "interleaved-thinking-2025-05-14",
+                ...(includeClaudeCode ? ["claude-code-20250219"] : []),
               ].join(",");
 
-              const headers = {
-                ...init.headers,
-                authorization: `Bearer ${auth.access}`,
-                "anthropic-beta": mergedBetas,
-              };
-              delete headers["x-api-key"];
+              requestHeaders.set("authorization", `Bearer ${auth.access}`);
+              requestHeaders.set("anthropic-beta", mergedBetas);
+              requestHeaders.set(
+                "user-agent",
+                "claude-cli/2.1.2 (external, cli)",
+              );
+              requestHeaders.delete("x-api-key");
 
               const TOOL_PREFIX = "oc_";
-              let body = init.body;
+              let body = requestInit.body;
               if (body && typeof body === "string") {
                 try {
                   const parsed = JSON.parse(body);
@@ -169,10 +196,34 @@ export async function AnthropicAuthPlugin({ client }) {
                 }
               }
 
-              const response = await fetch(input, {
-                ...init,
+              let requestInput = input;
+              let requestUrl = null;
+              try {
+                if (typeof input === "string" || input instanceof URL) {
+                  requestUrl = new URL(input.toString());
+                } else if (input instanceof Request) {
+                  requestUrl = new URL(input.url);
+                }
+              } catch {
+                requestUrl = null;
+              }
+
+              if (
+                requestUrl &&
+                requestUrl.pathname === "/v1/messages" &&
+                !requestUrl.searchParams.has("beta")
+              ) {
+                requestUrl.searchParams.set("beta", "true");
+                requestInput =
+                  input instanceof Request
+                    ? new Request(requestUrl.toString(), input)
+                    : requestUrl;
+              }
+
+              const response = await fetch(requestInput, {
+                ...requestInit,
                 body,
-                headers,
+                headers: requestHeaders,
               });
 
               // Transform streaming response to rename tools back
