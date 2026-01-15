@@ -1,5 +1,5 @@
 {
-  "name": "opencode-anthropic-auth",
+  "name": "opencode-anthropic-auth-dynamic",
   "version": "0.0.9",
   "type": "module",
   "main": "./index.js",
