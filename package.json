@@ -1,9 +1,15 @@
 {
   "name": "opencode-anthropic-auth",
   "version": "0.0.9",
-  "main": "./index.mjs",
+  "type": "module",
+  "main": "./index.js",
+  "scripts": {
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
   "devDependencies": {
-    "@opencode-ai/plugin": "^0.4.45"
+    "@opencode-ai/plugin": "^0.4.45",
+    "prettier": "^3.8.0"
   },
   "dependencies": {
     "@openauthjs/openauth": "^0.4.3"
