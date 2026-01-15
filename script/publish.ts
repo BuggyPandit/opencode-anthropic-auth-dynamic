@@ -20,7 +20,7 @@ console.log(`New version: ${version}`);
 // Commit the version bump
 await $`git add package.json`;
 await $`git commit -m "Bump version to ${version}"`;
-await $`git push`;
+await $`git push origin HEAD`;
 
 // Trigger GitHub workflow
 console.log(`Triggering publish workflow...`);
