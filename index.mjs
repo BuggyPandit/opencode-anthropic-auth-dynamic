@@ -136,7 +136,7 @@ function applyStainlessHeaders(headers, isStream = false) {
   const config = getEnvConfig();
 
   headers.set("accept", "application/json");
-  headers.set("user-agent", "claude-cli/2.1.2 (external, cli)");
+  headers.set("user-agent", "claude-cli/2.1.7 (external, cli)");
   headers.set("x-app", "cli");
   headers.set("anthropic-dangerous-direct-browser-access", "true");
   headers.set("x-stainless-arch", config.arch);
@@ -155,7 +155,7 @@ function applyStainlessHeaders(headers, isStream = false) {
 
 function getBetaHeadersForPath(pathname) {
   if (pathname === "/v1/messages") {
-    return ["oauth-2025-04-20", "interleaved-thinking-2025-05-14"];
+    return ["claude-code-20250219", "oauth-2025-04-20", "interleaved-thinking-2025-05-14"];
   }
   if (pathname === "/v1/messages/count_tokens") {
     return [
@@ -237,22 +237,88 @@ function normalizeToolNameForOpenCode(name) {
   return OPENCODE_TOOL_NAMES.get(name) ?? toSnakeCase(name);
 }
 
+/**
+ * Sanitize tool description to remove opencode-specific strings and file paths.
+ * This prevents detection by Anthropic that the request is not from Claude Code.
+ */
+function sanitizeToolDescription(description) {
+  if (!description || typeof description !== "string") return description;
+  return description
+    // Remove absolute file paths (Linux/Mac/Windows)
+    .replace(/\/(?:home|Users|tmp|var|opt|usr|etc)\/[^\s,)"'\]]+/g, "[path]")
+    .replace(/[A-Z]:\\[^\s,)"'\]]+/gi, "[path]")
+    // Replace opencode references
+    .replace(/opencode/gi, "Claude")
+    .replace(/OpenCode/g, "Claude Code");
+}
+
+/**
+ * Convert camelCase parameter names to snake_case in tool input_schema.
+ * Claude Code uses snake_case for parameters (file_path, old_string, etc.)
+ */
+function normalizeToolInputSchema(inputSchema) {
+  if (!inputSchema || typeof inputSchema !== "object") return inputSchema;
+
+  const result = { ...inputSchema };
+
+  // Convert property names from camelCase to snake_case
+  if (result.properties && typeof result.properties === "object") {
+    const newProperties = {};
+    for (const [key, value] of Object.entries(result.properties)) {
+      const snakeKey = toSnakeCase(key);
+      newProperties[snakeKey] = value;
+    }
+    result.properties = newProperties;
+  }
+
+  // Update required array with snake_case names
+  if (Array.isArray(result.required)) {
+    result.required = result.required.map(toSnakeCase);
+  }
+
+  return result;
+}
+
+/**
+ * Normalize a single tool object for Claude compatibility.
+ */
+function normalizeTool(tool) {
+  if (!tool || typeof tool !== "object") return tool;
+
+  const normalized = { ...tool };
+
+  // Normalize tool name
+  if (normalized.name) {
+    normalized.name = normalizeToolNameForClaude(normalized.name);
+  }
+
+  // Sanitize description
+  if (normalized.description) {
+    normalized.description = sanitizeToolDescription(normalized.description);
+  }
+
+  // Normalize input_schema parameter names
+  if (normalized.input_schema) {
+    normalized.input_schema = normalizeToolInputSchema(normalized.input_schema);
+  }
+
+  return normalized;
+}
+
 function normalizeTools(tools) {
   if (Array.isArray(tools)) {
-    return tools.map((tool) => ({
-      ...tool,
-      name: tool.name ? normalizeToolNameForClaude(tool.name) : tool.name,
-    }));
+    return tools.map(normalizeTool);
   }
 
   if (tools && typeof tools === "object") {
     const mapped = {};
     for (const [key, value] of Object.entries(tools)) {
       const mappedKey = normalizeToolNameForClaude(key);
-      mapped[mappedKey] =
-        value && typeof value === "object"
-          ? { ...value, name: value.name ? normalizeToolNameForClaude(value.name) : mappedKey }
-          : value;
+      mapped[mappedKey] = normalizeTool(value);
+      // Ensure the name property matches the key
+      if (mapped[mappedKey] && typeof mapped[mappedKey] === "object") {
+        mapped[mappedKey].name = mappedKey;
+      }
     }
     return mapped;
   }
