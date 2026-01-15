@@ -96,19 +96,6 @@ function toSnakeCase(value) {
     .toLowerCase();
 }
 
-function toCamelCase(value) {
-  if (!value) return value;
-  return value.replace(/_([a-z])/g, (_, letter) => letter.toUpperCase());
-}
-
-// Map of snake_case -> camelCase for tool parameters we convert
-const PARAM_NAME_MAP = new Map([
-  ["file_path", "filePath"],
-  ["old_string", "oldString"],
-  ["new_string", "newString"],
-  ["replace_all", "replaceAll"],
-]);
-
 function getBaseFetch() {
   return BASE_FETCH ?? globalThis.fetch;
 }
@@ -270,33 +257,6 @@ function sanitizeToolDescription(description) {
 }
 
 /**
- * Convert camelCase parameter names to snake_case in tool input_schema.
- * Claude Code uses snake_case for parameters (file_path, old_string, etc.)
- */
-function normalizeToolInputSchema(inputSchema) {
-  if (!inputSchema || typeof inputSchema !== "object") return inputSchema;
-
-  const result = { ...inputSchema };
-
-  // Convert property names from camelCase to snake_case
-  if (result.properties && typeof result.properties === "object") {
-    const newProperties = {};
-    for (const [key, value] of Object.entries(result.properties)) {
-      const snakeKey = toSnakeCase(key);
-      newProperties[snakeKey] = value;
-    }
-    result.properties = newProperties;
-  }
-
-  // Update required array with snake_case names
-  if (Array.isArray(result.required)) {
-    result.required = result.required.map(toSnakeCase);
-  }
-
-  return result;
-}
-
-/**
  * Normalize a single tool object for Claude compatibility.
  */
 function normalizeTool(tool) {
@@ -314,10 +274,10 @@ function normalizeTool(tool) {
     normalized.description = sanitizeToolDescription(normalized.description);
   }
 
-  // Normalize input_schema parameter names
-  if (normalized.input_schema) {
-    normalized.input_schema = normalizeToolInputSchema(normalized.input_schema);
-  }
+  // Note: We do NOT convert parameter names to snake_case because:
+  // 1. Claude Code uses camelCase for parameters (verified in HAR analysis)
+  // 2. OpenCode expects camelCase in tool_use responses
+  // 3. Converting creates a mismatch that breaks tool execution
 
   return normalized;
 }
@@ -384,16 +344,6 @@ function replaceToolNamesInText(text) {
     output = output.replace(
       new RegExp(`"model"\\s*:\\s*"${escapeRegExp(full)}"`, "g"),
       `"model": "${base}"`,
-    );
-  }
-
-  // Convert snake_case parameter names back to camelCase in tool_use input
-  // This is needed because we convert camelCase -> snake_case in requests
-  for (const [snake, camel] of PARAM_NAME_MAP.entries()) {
-    // Match "param_name": at the start of a key in JSON
-    output = output.replace(
-      new RegExp(`"${snake}"\\s*:`, "g"),
-      `"${camel}":`,
     );
   }
 
